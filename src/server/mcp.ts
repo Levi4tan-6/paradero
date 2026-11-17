@@ -70,11 +70,17 @@ export function mcpServer(): McpServer {
     {
       title: "Next buses at a stop",
       description:
-        "A stop or station with its next arrivals (minutes, basis, delay), the buses heading to it on the routes that serve it, and service alerts.",
+        "A stop or station with its next arrivals (minutes, basis, delay), the buses heading to it on the routes that serve it (only while the feed is live), and service alerts.",
       inputSchema: { stop_id: id("stop").describe("A stop id from search or find_nearby_stops") },
       annotations: READ_ONLY,
     },
-    ({ stop_id }) => answer(() => stopDetail(stop_id)),
+    ({ stop_id }) =>
+      answer(async () => {
+        const detail = await stopDetail(stop_id);
+        if (!detail) return null;
+        // Like the app: old positions are never shown as where a bus is now
+        return detail.feed.live ? detail : { ...detail, incoming: [] };
+      }),
   );
 
   server.registerTool(
@@ -82,7 +88,7 @@ export function mcpServer(): McpServer {
     {
       title: "Route detail",
       description:
-        "A route with its stops in order, first and last departure, the buses on it right now (up to 50, busCount says how many there are) and service alerts.",
+        "A route with its stops in order, first and last departure, the buses on it right now while the feed is live (up to 50, busCount says how many there are) and service alerts.",
       inputSchema: { route_id: id("route").describe("A route id from search or get_stop") },
       annotations: READ_ONLY,
     },
@@ -90,8 +96,10 @@ export function mcpServer(): McpServer {
       answer(async () => {
         const detail = await routeDetail(route_id);
         if (!detail) return null;
-        const { path: _path, buses, ...rest } = detail;
-        return { ...rest, busCount: buses.length, buses: buses.slice(0, 50) };
+        // Map geometry is for drawing, not for answering, and old positions are never shown as current
+        const { path: _path, patterns: _patterns, buses, ...rest } = detail;
+        const shown = rest.feed.live ? buses : [];
+        return { ...rest, busCount: shown.length, buses: shown.slice(0, 50) };
       }),
   );
 
